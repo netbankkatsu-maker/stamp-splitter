@@ -25,7 +25,7 @@ const GRID_PATTERNS: Record<number, GridPattern> = {
 export default function StampSplitter() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [selectedCount, setSelectedCount] = useState<number>(16);
+  const [selectedCount, setSelectedCount] = useState<number>(8);
   const [isLoading, setIsLoading] = useState(false);
   const [removeWhiteBg, setRemoveWhiteBg] = useState(false);
   const [lineAdjustments, setLineAdjustments] = useState<LineAdjustment>({
@@ -479,37 +479,97 @@ export default function StampSplitter() {
                       onMouseUp={handleMouseUp}
                       onMouseLeave={handleMouseUp}
                     >
+                      {/* 縦線 */}
                       {lineAdjustments.verticalLines.map((posX, idx) => {
                         const x = (canvasRef.current?.width || 0) * posX;
+                        const canvasHeight = canvasRef.current?.height || 0;
                         return (
-                          <line
-                            key={`v-${idx}`}
-                            x1={x}
-                            y1="0"
-                            x2={x}
-                            y2={canvasRef.current?.height || 0}
-                            stroke="rgba(255, 0, 0, 0)"
-                            strokeWidth="10"
-                            onMouseDown={() => setDraggedLine({ type: 'vertical', index: idx })}
-                            style={{ cursor: 'col-resize' }}
-                          />
+                          <g key={`v-${idx}`}>
+                            {/* 細い見えない線（ドラッグエリア） */}
+                            <line
+                              x1={x}
+                              y1="0"
+                              x2={x}
+                              y2={canvasHeight}
+                              stroke="rgba(255, 0, 0, 0)"
+                              strokeWidth="10"
+                              style={{ cursor: 'col-resize', pointerEvents: 'stroke' }}
+                              onMouseDown={() => setDraggedLine({ type: 'vertical', index: idx })}
+                            />
+                            {/* 目に見える赤い線 */}
+                            <line
+                              x1={x}
+                              y1="0"
+                              x2={x}
+                              y2={canvasHeight}
+                              stroke="rgba(255, 0, 0, 0.6)"
+                              strokeWidth="2"
+                              pointerEvents="none"
+                            />
+                            {/* ドラッグハンドル（つまみ） */}
+                            <circle
+                              cx={x}
+                              cy={canvasHeight / 2}
+                              r="12"
+                              fill="rgba(255, 100, 100, 0.8)"
+                              stroke="rgba(255, 0, 0, 1)"
+                              strokeWidth="2"
+                              style={{
+                                cursor: 'grab',
+                                filter: draggedLine?.type === 'vertical' && draggedLine.index === idx
+                                  ? 'drop-shadow(0 0 8px rgba(255, 0, 0, 0.8))'
+                                  : 'drop-shadow(0 0 2px rgba(0, 0, 0, 0.3))',
+                              }}
+                              onMouseDown={() => setDraggedLine({ type: 'vertical', index: idx })}
+                            />
+                          </g>
                         );
                       })}
 
+                      {/* 横線 */}
                       {lineAdjustments.horizontalLines.map((posY, idx) => {
                         const y = (canvasRef.current?.height || 0) * posY;
+                        const canvasWidth = canvasRef.current?.width || 0;
                         return (
-                          <line
-                            key={`h-${idx}`}
-                            x1="0"
-                            y1={y}
-                            x2={canvasRef.current?.width || 0}
-                            y2={y}
-                            stroke="rgba(255, 0, 0, 0)"
-                            strokeWidth="10"
-                            onMouseDown={() => setDraggedLine({ type: 'horizontal', index: idx })}
-                            style={{ cursor: 'row-resize' }}
-                          />
+                          <g key={`h-${idx}`}>
+                            {/* 細い見えない線（ドラッグエリア） */}
+                            <line
+                              x1="0"
+                              y1={y}
+                              x2={canvasWidth}
+                              y2={y}
+                              stroke="rgba(255, 0, 0, 0)"
+                              strokeWidth="10"
+                              style={{ cursor: 'row-resize', pointerEvents: 'stroke' }}
+                              onMouseDown={() => setDraggedLine({ type: 'horizontal', index: idx })}
+                            />
+                            {/* 目に見える赤い線 */}
+                            <line
+                              x1="0"
+                              y1={y}
+                              x2={canvasWidth}
+                              y2={y}
+                              stroke="rgba(255, 0, 0, 0.6)"
+                              strokeWidth="2"
+                              pointerEvents="none"
+                            />
+                            {/* ドラッグハンドル（つまみ） */}
+                            <circle
+                              cx={canvasWidth / 2}
+                              cy={y}
+                              r="12"
+                              fill="rgba(255, 100, 100, 0.8)"
+                              stroke="rgba(255, 0, 0, 1)"
+                              strokeWidth="2"
+                              style={{
+                                cursor: 'grab',
+                                filter: draggedLine?.type === 'horizontal' && draggedLine.index === idx
+                                  ? 'drop-shadow(0 0 8px rgba(255, 0, 0, 0.8))'
+                                  : 'drop-shadow(0 0 2px rgba(0, 0, 0, 0.3))',
+                              }}
+                              onMouseDown={() => setDraggedLine({ type: 'horizontal', index: idx })}
+                            />
+                          </g>
                         );
                       })}
                     </svg>
