@@ -120,16 +120,15 @@ export default function StampSplitter() {
 
     if (!draggedLine || !overlayRef.current || !canvasRef.current) return;
 
-    const svg = overlayRef.current;
     const canvas = canvasRef.current;
-    const rect = svg.getBoundingClientRect();
     const canvasRect = canvas.getBoundingClientRect();
 
     const pattern = GRID_PATTERNS[selectedCount];
     let newPosition: number;
 
     if (draggedLine.type === 'vertical') {
-      const x = e.clientX - rect.left;
+      // キャンバスを基準に座標計算
+      const x = e.clientX - canvasRect.left;
       newPosition = x / canvasRect.width;
       newPosition = Math.max(0, Math.min(1, newPosition));
       newPosition = snapToGrid(newPosition, pattern.cols);
@@ -140,7 +139,7 @@ export default function StampSplitter() {
         return { ...prev, verticalLines: newLines };
       });
     } else {
-      const y = e.clientY - rect.top;
+      const y = e.clientY - canvasRect.top;
       newPosition = y / canvasRect.height;
       newPosition = Math.max(0, Math.min(1, newPosition));
       newPosition = snapToGrid(newPosition, pattern.rows);
@@ -452,59 +451,69 @@ export default function StampSplitter() {
                 <h2 className="text-lg font-semibold text-gray-700 mb-3">
                   分割線を調整（ドラッグで移動、スナップで位置決定）
                 </h2>
-                <div className="relative bg-gray-100 rounded-lg p-4">
-                  <canvas
-                    ref={canvasRef}
-                    className="max-w-full mx-auto block"
-                    style={{ maxHeight: '500px', width: 'auto' }}
-                  />
-                  <svg
-                    ref={overlayRef}
-                    className="absolute inset-0 select-none"
-                    style={{
-                      top: '1rem',
-                      left: '1rem',
-                      pointerEvents: 'all',
-                      touchAction: 'none',
-                    }}
-                    onMouseMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                    onMouseLeave={handleMouseUp}
-                  >
-                    {lineAdjustments.verticalLines.map((posX, idx) => {
-                      const x = (canvasRef.current?.width || 0) * posX;
-                      return (
-                        <line
-                          key={`v-${idx}`}
-                          x1={x}
-                          y1="0"
-                          x2={x}
-                          y2={canvasRef.current?.height || 0}
-                          stroke="rgba(255, 0, 0, 0)"
-                          strokeWidth="10"
-                          onMouseDown={() => setDraggedLine({ type: 'vertical', index: idx })}
-                          style={{ cursor: 'col-resize' }}
-                        />
-                      );
-                    })}
+                <div className="relative bg-gray-100 rounded-lg overflow-hidden inline-block w-full">
+                  <div style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
+                    <canvas
+                      ref={canvasRef}
+                      className="max-w-full mx-auto block"
+                      style={{
+                        maxHeight: '500px',
+                        width: 'auto',
+                        height: 'auto',
+                        display: 'block',
+                      }}
+                    />
+                    <svg
+                      ref={overlayRef}
+                      className="select-none"
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: canvasRef.current?.width ? `${canvasRef.current.width}px` : '100%',
+                        height: canvasRef.current?.height ? `${canvasRef.current.height}px` : 'auto',
+                        pointerEvents: 'all',
+                        touchAction: 'none',
+                      }}
+                      onMouseMove={handleMouseMove}
+                      onMouseUp={handleMouseUp}
+                      onMouseLeave={handleMouseUp}
+                    >
+                      {lineAdjustments.verticalLines.map((posX, idx) => {
+                        const x = (canvasRef.current?.width || 0) * posX;
+                        return (
+                          <line
+                            key={`v-${idx}`}
+                            x1={x}
+                            y1="0"
+                            x2={x}
+                            y2={canvasRef.current?.height || 0}
+                            stroke="rgba(255, 0, 0, 0)"
+                            strokeWidth="10"
+                            onMouseDown={() => setDraggedLine({ type: 'vertical', index: idx })}
+                            style={{ cursor: 'col-resize' }}
+                          />
+                        );
+                      })}
 
-                    {lineAdjustments.horizontalLines.map((posY, idx) => {
-                      const y = (canvasRef.current?.height || 0) * posY;
-                      return (
-                        <line
-                          key={`h-${idx}`}
-                          x1="0"
-                          y1={y}
-                          x2={canvasRef.current?.width || 0}
-                          y2={y}
-                          stroke="rgba(255, 0, 0, 0)"
-                          strokeWidth="10"
-                          onMouseDown={() => setDraggedLine({ type: 'horizontal', index: idx })}
-                          style={{ cursor: 'row-resize' }}
-                        />
-                      );
-                    })}
-                  </svg>
+                      {lineAdjustments.horizontalLines.map((posY, idx) => {
+                        const y = (canvasRef.current?.height || 0) * posY;
+                        return (
+                          <line
+                            key={`h-${idx}`}
+                            x1="0"
+                            y1={y}
+                            x2={canvasRef.current?.width || 0}
+                            y2={y}
+                            stroke="rgba(255, 0, 0, 0)"
+                            strokeWidth="10"
+                            onMouseDown={() => setDraggedLine({ type: 'horizontal', index: idx })}
+                            style={{ cursor: 'row-resize' }}
+                          />
+                        );
+                      })}
+                    </svg>
+                  </div>
                 </div>
               </div>
 
