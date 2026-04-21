@@ -118,21 +118,18 @@ export default function StampSplitter() {
   };
 
   const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
+    if (!draggedLine || !overlayRef.current) return;
 
-    if (!draggedLine || !canvasRef.current) return;
-
-    const canvas = canvasRef.current;
-    const canvasRect = canvas.getBoundingClientRect();
+    const svg = overlayRef.current;
+    const svgRect = svg.getBoundingClientRect();
 
     const pattern = GRID_PATTERNS[selectedCount];
     let newPosition: number;
 
     if (draggedLine.type === 'vertical') {
-      const x = e.clientX - canvasRect.left;
-      newPosition = x / canvasRect.width;
-      newPosition = Math.max(0, Math.min(1, newPosition));
+      const x = e.clientX - svgRect.left;
+      const ratio = x / svgRect.width;
+      newPosition = Math.max(0.01, Math.min(0.99, ratio));
       newPosition = snapToGrid(newPosition, pattern.cols);
 
       setLineAdjustments((prev) => {
@@ -141,9 +138,9 @@ export default function StampSplitter() {
         return { ...prev, verticalLines: newLines };
       });
     } else {
-      const y = e.clientY - canvasRect.top;
-      newPosition = y / canvasRect.height;
-      newPosition = Math.max(0, Math.min(1, newPosition));
+      const y = e.clientY - svgRect.top;
+      const ratio = y / svgRect.height;
+      newPosition = Math.max(0.01, Math.min(0.99, ratio));
       newPosition = snapToGrid(newPosition, pattern.rows);
 
       setLineAdjustments((prev) => {
@@ -505,9 +502,8 @@ export default function StampSplitter() {
                       position: 'absolute',
                       top: 0,
                       left: 0,
-                      width: canvasRef.current?.width ? `${canvasRef.current.width}px` : '100%',
-                      height: canvasRef.current?.height ? `${canvasRef.current.height}px` : 'auto',
-                      maxHeight: '600px',
+                      width: '100%',
+                      height: '100%',
                       pointerEvents: 'all',
                       touchAction: 'none',
                     }}
@@ -517,43 +513,35 @@ export default function StampSplitter() {
                   >
                     {/* 縦線 */}
                     {lineAdjustments.verticalLines.map((posX, idx) => {
-                      const x = (canvasRef.current?.width || 0) * posX;
-                      const canvasHeight = canvasRef.current?.height || 0;
+                      const canvasWidth = canvasRef.current?.width || 1;
+                      const svgWidth = overlayRef.current?.getBoundingClientRect().width || canvasWidth;
+                      const x = (svgWidth / canvasWidth) * posX * canvasWidth;
                       return (
-                        <g key={`v-${idx}`}>
+                        <g
+                          key={`v-${idx}`}
+                          onMouseDown={() => setDraggedLine({ type: 'vertical', index: idx })}
+                        >
                           <line
                             x1={x}
                             y1="0"
                             x2={x}
-                            y2={canvasHeight}
-                            stroke="rgba(255, 0, 0, 0)"
-                            strokeWidth="15"
-                            style={{ cursor: 'col-resize', pointerEvents: 'stroke' }}
-                            onMouseDown={() => setDraggedLine({ type: 'vertical', index: idx })}
-                          />
-                          <line
-                            x1={x}
-                            y1="0"
-                            x2={x}
-                            y2={canvasHeight}
+                            y2="100%"
                             stroke="rgba(255, 0, 0, 0.6)"
                             strokeWidth="2"
-                            pointerEvents="none"
                           />
                           <circle
                             cx={x}
-                            cy={canvasHeight / 2}
-                            r="16"
+                            cy="50%"
+                            r="14"
                             fill="rgba(255, 100, 100, 0.9)"
                             stroke="rgba(255, 0, 0, 1)"
-                            strokeWidth="3"
+                            strokeWidth="2"
                             style={{
                               cursor: 'grab',
                               filter: draggedLine?.type === 'vertical' && draggedLine.index === idx
                                 ? 'drop-shadow(0 0 12px rgba(255, 0, 0, 0.9))'
                                 : 'drop-shadow(0 0 4px rgba(0, 0, 0, 0.4))',
                             }}
-                            onMouseDown={() => setDraggedLine({ type: 'vertical', index: idx })}
                           />
                         </g>
                       );
@@ -561,43 +549,35 @@ export default function StampSplitter() {
 
                     {/* 横線 */}
                     {lineAdjustments.horizontalLines.map((posY, idx) => {
-                      const y = (canvasRef.current?.height || 0) * posY;
-                      const canvasWidth = canvasRef.current?.width || 0;
+                      const canvasHeight = canvasRef.current?.height || 1;
+                      const svgHeight = overlayRef.current?.getBoundingClientRect().height || canvasHeight;
+                      const y = (svgHeight / canvasHeight) * posY * canvasHeight;
                       return (
-                        <g key={`h-${idx}`}>
+                        <g
+                          key={`h-${idx}`}
+                          onMouseDown={() => setDraggedLine({ type: 'horizontal', index: idx })}
+                        >
                           <line
                             x1="0"
                             y1={y}
-                            x2={canvasWidth}
-                            y2={y}
-                            stroke="rgba(255, 0, 0, 0)"
-                            strokeWidth="15"
-                            style={{ cursor: 'row-resize', pointerEvents: 'stroke' }}
-                            onMouseDown={() => setDraggedLine({ type: 'horizontal', index: idx })}
-                          />
-                          <line
-                            x1="0"
-                            y1={y}
-                            x2={canvasWidth}
+                            x2="100%"
                             y2={y}
                             stroke="rgba(255, 0, 0, 0.6)"
                             strokeWidth="2"
-                            pointerEvents="none"
                           />
                           <circle
-                            cx={canvasWidth / 2}
+                            cx="50%"
                             cy={y}
-                            r="16"
+                            r="14"
                             fill="rgba(255, 100, 100, 0.9)"
                             stroke="rgba(255, 0, 0, 1)"
-                            strokeWidth="3"
+                            strokeWidth="2"
                             style={{
                               cursor: 'grab',
                               filter: draggedLine?.type === 'horizontal' && draggedLine.index === idx
                                 ? 'drop-shadow(0 0 12px rgba(255, 0, 0, 0.9))'
                                 : 'drop-shadow(0 0 4px rgba(0, 0, 0, 0.4))',
                             }}
-                            onMouseDown={() => setDraggedLine({ type: 'horizontal', index: idx })}
                           />
                         </g>
                       );
