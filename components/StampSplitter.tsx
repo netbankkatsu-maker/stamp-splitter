@@ -1,12 +1,17 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import JSZip from 'jszip';
 
 interface GridPattern {
   cols: number;
   rows: number;
   count: number;
+}
+
+interface LineAdjustment {
+  verticalLines: number[]; // 垂直線のX座標（割合 0-1）
+  horizontalLines: number[]; // 水平線のY座標（割合 0-1）
 }
 
 const GRID_PATTERNS: Record<number, GridPattern> = {
@@ -23,8 +28,47 @@ export default function StampSplitter() {
   const [selectedCount, setSelectedCount] = useState<number>(16);
   const [isLoading, setIsLoading] = useState(false);
   const [removeWhiteBg, setRemoveWhiteBg] = useState(false);
+  const [lineAdjustments, setLineAdjustments] = useState<LineAdjustment>({
+    verticalLines: [],
+    horizontalLines: [],
+  });
+  const [draggedLine, setDraggedLine] = useState<{
+    type: 'vertical' | 'horizontal';
+    index: number;
+  } | null>(null);
+  const [stampPreviews, setStampPreviews] = useState<string[]>([]);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef<SVGSVGElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 初期分割線を生成
+  const initializeLines = useCallback((cols: number, rows: number) => {
+    const verticalLines = Array.from({ length: cols - 1 }, (_, i) => (i + 1) / cols);
+    const horizontalLines = Array.from({ length: rows - 1 }, (_, i) => (i + 1) / rows);
+    setLineAdjustments({ verticalLines, horizontalLines });
+  }, []);
+
+  // スナップ機能
+  const snapToGrid = useCallback((position: number, divisionCount: number) => {
+    const snapPositions = Array.from({ length: divisionCount - 1 }, (_, i) => (i + 1) / divisionCount);
+    let closestSnap = position;
+    let minDistance = Infinity;
+
+    snapPositions.forEach((snap) => {
+      const distance = Math.abs(position - snap);
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestSnap = snap;
+      }
+    });
+
+    // 5%以内の距離なら吸着
+    if (minDistance < 0.05) {
+      return closestSnap;
+    }
+    return position;
+  }, []);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -34,6 +78,12 @@ export default function StampSplitter() {
     const reader = new FileReader();
     reader.onload = (event) => {
       setSelectedImage(event.target?.result as string);
+      const img = new Image();
+      img.onload = () => {
+        const pattern = GRID_PATTERNS[selectedCount];
+        initializeLines(pattern.cols, pattern.rows);
+      };
+      img.src = event.target?.result as string;
     };
     reader.readAsDataURL(file);
   };
@@ -52,6 +102,12 @@ export default function StampSplitter() {
     const reader = new FileReader();
     reader.onload = (event) => {
       setSelectedImage(event.target?.result as string);
+      const img = new Image();
+      img.onload = () => {
+        const pattern = GRID_PATTERNS[selectedCount];
+        initializeLines(pattern.cols, pattern.rows);
+      };
+      img.src = event.target?.result as string;
     };
     reader.readAsDataURL(file);
   };
@@ -61,7 +117,49 @@ export default function StampSplitter() {
     e.stopPropagation();
   };
 
-  const drawPreview = () => {
+  // SVG上のマウスムーブ
+  const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    if (!draggedLine || !overlayRef.current || !canvasRef.current) return;
+
+    const svg = overlayRef.current;
+    const canvas = canvasRef.current;
+    const rect = svg.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+
+    const pattern = GRID_PATTERNS[selectedCount];
+    let newPosition: number;
+
+    if (draggedLine.type === 'vertical') {
+      const x = e.clientX - rect.left;
+      newPosition = x / canvasRect.width;
+      newPosition = Math.max(0, Math.min(1, newPosition));
+      newPosition = snapToGrid(newPosition, pattern.cols);
+
+      setLineAdjustments((prev) => {
+        const newLines = [...prev.verticalLines];
+        newLines[draggedLine.index] = newPosition;
+        return { ...prev, verticalLines: newLines };
+      });
+    } else {
+      const y = e.clientY - rect.top;
+      newPosition = y / canvasRect.height;
+      newPosition = Math.max(0, Math.min(1, newPosition));
+      newPosition = snapToGrid(newPosition, pattern.rows);
+
+      setLineAdjustments((prev) => {
+        const newLines = [...prev.horizontalLines];
+        newLines[draggedLine.index] = newPosition;
+        return { ...prev, horizontalLines: newLines };
+      });
+    }
+  }, [draggedLine, selectedCount, snapToGrid]);
+
+  const handleMouseUp = () => {
+    setDraggedLine(null);
+  };
+
+  // キャンバスに分割線を描画
+  useEffect(() => {
     if (!selectedImage || !canvasRef.current) return;
 
     const img = new Image();
@@ -77,48 +175,105 @@ export default function StampSplitter() {
 
       ctx.drawImage(img, 0, 0);
 
-      const pattern = GRID_PATTERNS[selectedCount];
-      const cellWidth = img.width / pattern.cols;
-      const cellHeight = img.height / pattern.rows;
-
-      // グリッドラインの描画
-      ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+      // 調整された分割線を描画
+      ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
       ctx.lineWidth = 2;
 
       // 縦線
-      for (let i = 1; i < pattern.cols; i++) {
+      lineAdjustments.verticalLines.forEach((posX) => {
+        const x = posX * img.width;
         ctx.beginPath();
-        ctx.moveTo(i * cellWidth, 0);
-        ctx.lineTo(i * cellWidth, img.height);
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, img.height);
         ctx.stroke();
-      }
+      });
 
       // 横線
-      for (let i = 1; i < pattern.rows; i++) {
+      lineAdjustments.horizontalLines.forEach((posY) => {
+        const y = posY * img.height;
         ctx.beginPath();
-        ctx.moveTo(0, i * cellHeight);
-        ctx.lineTo(img.width, i * cellHeight);
+        ctx.moveTo(0, y);
+        ctx.lineTo(img.width, y);
         ctx.stroke();
-      }
+      });
     };
     img.src = selectedImage;
-  };
+  }, [selectedImage, lineAdjustments]);
 
+  // スタンププレビューを生成
   useEffect(() => {
-    drawPreview();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedImage, selectedCount]);
+    if (!selectedImage) return;
 
-  const removeWhiteBackground = (
-    imageData: ImageData
-  ): ImageData => {
+    const img = new Image();
+    img.onload = () => {
+      const previews: string[] = [];
+
+      // X座標（カラム）と Y座標（ロー）を構築
+      const xPositions = [0, ...lineAdjustments.verticalLines.map(x => x * img.width), img.width];
+      const yPositions = [0, ...lineAdjustments.horizontalLines.map(y => y * img.height), img.height];
+
+      // ソート
+      xPositions.sort((a, b) => a - b);
+      yPositions.sort((a, b) => a - b);
+
+      for (let row = 0; row < yPositions.length - 1 && previews.length < selectedCount; row++) {
+        for (let col = 0; col < xPositions.length - 1 && previews.length < selectedCount; col++) {
+          const canvas = document.createElement('canvas');
+          const cellWidth = xPositions[col + 1] - xPositions[col];
+          const cellHeight = yPositions[row + 1] - yPositions[row];
+
+          canvas.width = cellWidth;
+          canvas.height = cellHeight;
+
+          const ctx = canvas.getContext('2d');
+          if (!ctx) continue;
+
+          ctx.drawImage(
+            img,
+            xPositions[col],
+            yPositions[row],
+            cellWidth,
+            cellHeight,
+            0,
+            0,
+            cellWidth,
+            cellHeight
+          );
+
+          // 白背景を透過に変換
+          if (removeWhiteBg) {
+            const imageData = ctx.getImageData(0, 0, cellWidth, cellHeight);
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+              if (data[i] === 255 && data[i + 1] === 255 && data[i + 2] === 255) {
+                data[i + 3] = 0;
+              }
+            }
+            ctx.putImageData(imageData, 0, 0);
+          }
+
+          previews.push(canvas.toDataURL('image/png'));
+        }
+      }
+
+      setStampPreviews(previews);
+    };
+    img.src = selectedImage;
+  }, [selectedImage, selectedCount, lineAdjustments, removeWhiteBg]);
+
+  // 分割数変更時
+  useEffect(() => {
+    const pattern = GRID_PATTERNS[selectedCount];
+    initializeLines(pattern.cols, pattern.rows);
+  }, [selectedCount, initializeLines]);
+
+  const removeWhiteBackground = (imageData: ImageData): ImageData => {
     const data = imageData.data;
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
 
-      // 白背景（RGB 255,255,255）を透過に変換
       if (r === 255 && g === 255 && b === 255) {
         data[i + 3] = 0;
       }
@@ -137,34 +292,34 @@ export default function StampSplitter() {
     try {
       const img = new Image();
       img.onload = async () => {
-        const pattern = GRID_PATTERNS[selectedCount];
-        const cellWidth = img.width / pattern.cols;
-        const cellHeight = img.height / pattern.rows;
-
         const zip = new JSZip();
         const padding = String(selectedCount).length;
 
-        for (let row = 0; row < pattern.rows; row++) {
-          for (let col = 0; col < pattern.cols; col++) {
-            const index = row * pattern.cols + col;
-            if (index >= selectedCount) break;
+        // X座標と Y座標を構築
+        const xPositions = [0, ...lineAdjustments.verticalLines.map(x => x * img.width), img.width];
+        const yPositions = [0, ...lineAdjustments.horizontalLines.map(y => y * img.height), img.height];
 
-            // キャンバスに1つのスタンプを描画
+        xPositions.sort((a, b) => a - b);
+        yPositions.sort((a, b) => a - b);
+
+        let stampIndex = 0;
+
+        for (let row = 0; row < yPositions.length - 1 && stampIndex < selectedCount; row++) {
+          for (let col = 0; col < xPositions.length - 1 && stampIndex < selectedCount; col++) {
             const canvas = document.createElement('canvas');
+            const cellWidth = xPositions[col + 1] - xPositions[col];
+            const cellHeight = yPositions[row + 1] - yPositions[row];
+
             canvas.width = cellWidth;
             canvas.height = cellHeight;
 
             const ctx = canvas.getContext('2d');
             if (!ctx) continue;
 
-            // 背景を透明にして描画
-            ctx.fillStyle = 'rgba(255, 255, 255, 0)';
-            ctx.fillRect(0, 0, cellWidth, cellHeight);
-
             ctx.drawImage(
               img,
-              col * cellWidth,
-              row * cellHeight,
+              xPositions[col],
+              yPositions[row],
               cellWidth,
               cellHeight,
               0,
@@ -173,21 +328,18 @@ export default function StampSplitter() {
               cellHeight
             );
 
-            // 白背景を透過に変換するオプション
             if (removeWhiteBg) {
               const imageData = ctx.getImageData(0, 0, cellWidth, cellHeight);
               const processedData = removeWhiteBackground(imageData);
               ctx.putImageData(processedData, 0, 0);
             }
 
-            // PNGとしてZIPに追加
             canvas.toBlob((blob) => {
               if (blob) {
-                const stampNum = String(index + 1).padStart(padding, '0');
+                const stampNum = String(stampIndex + 1).padStart(padding, '0');
                 zip.file(`stamp_${stampNum}.png`, blob);
 
-                // すべてのスタンプが完成したらダウンロード
-                if (index === selectedCount - 1) {
+                if (stampIndex === selectedCount - 1) {
                   zip.generateAsync({ type: 'blob' }).then((content) => {
                     const url = URL.createObjectURL(content);
                     const a = document.createElement('a');
@@ -202,6 +354,8 @@ export default function StampSplitter() {
                 }
               }
             }, 'image/png');
+
+            stampIndex++;
           }
         }
       };
@@ -215,14 +369,14 @@ export default function StampSplitter() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         {/* ヘッダー */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-800 mb-2">
             LINEスタンプ切り取りツール
           </h1>
           <p className="text-gray-600">
-            複数のスタンプが並んだ画像を均等分割してダウンロード
+            複数のスタンプが並んだ画像を自由に分割してダウンロード
           </p>
         </div>
 
@@ -263,103 +417,175 @@ export default function StampSplitter() {
             </p>
           </div>
 
-          {/* 画像プレビュー */}
           {selectedImage && (
-            <div className="mb-6">
-              <h2 className="text-lg font-semibold text-gray-700 mb-3">
-                プレビュー（分割ラインを表示）
-              </h2>
-              <div className="bg-gray-100 rounded-lg p-4 overflow-auto max-h-96">
-                <canvas
-                  ref={canvasRef}
-                  className="max-w-full mx-auto"
-                />
+            <>
+              {/* 分割数選択 */}
+              <div className="mb-6">
+                <h2 className="text-lg font-semibold text-gray-700 mb-3">
+                  分割数を選択
+                </h2>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  {[8, 16, 24, 32, 40].map((count) => (
+                    <button
+                      key={count}
+                      onClick={() => setSelectedCount(count)}
+                      className={`py-3 px-4 rounded-lg font-semibold transition ${
+                        selectedCount === count
+                          ? 'bg-blue-500 text-white shadow-lg'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      {count}枚
+                    </button>
+                  ))}
+                </div>
+                <p className="text-sm text-gray-600 mt-3">
+                  選択中: {GRID_PATTERNS[selectedCount].cols}列 × {GRID_PATTERNS[selectedCount].rows}行
+                </p>
               </div>
-            </div>
-          )}
 
-          {/* 分割数選択 */}
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold text-gray-700 mb-3">
-              分割数を選択
-            </h2>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              {[8, 16, 24, 32, 40].map((count) => (
-                <button
-                  key={count}
-                  onClick={() => setSelectedCount(count)}
-                  className={`py-3 px-4 rounded-lg font-semibold transition ${
-                    selectedCount === count
-                      ? 'bg-blue-500 text-white shadow-lg'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}
-                >
-                  {count}枚
-                </button>
-              ))}
-            </div>
-            {selectedImage && (
-              <p className="text-sm text-gray-600 mt-3">
-                選択中: {GRID_PATTERNS[selectedCount].cols}列 × {GRID_PATTERNS[selectedCount].rows}行
-              </p>
-            )}
-          </div>
-
-          {/* 背景透過オプション */}
-          {selectedImage && (
-            <div className="mb-6 p-4 bg-gray-100 rounded-lg">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={removeWhiteBg}
-                  onChange={(e) => setRemoveWhiteBg(e.target.checked)}
-                  className="w-4 h-4 text-blue-500 rounded"
-                />
-                <span className="ml-2 text-gray-700">
-                  白背景を透過に変換（JPG画像用）
-                </span>
-              </label>
-            </div>
-          )}
-
-          {/* ダウンロードボタン */}
-          {selectedImage && (
-            <button
-              onClick={handleSplitAndDownload}
-              disabled={isLoading}
-              className={`w-full py-3 px-6 rounded-lg font-semibold text-white transition ${
-                isLoading
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-green-500 hover:bg-green-600 active:scale-95'
-              }`}
-            >
-              {isLoading ? (
-                <span className="flex items-center justify-center">
+              {/* プレビュー */}
+              <div className="mb-6">
+                <h2 className="text-lg font-semibold text-gray-700 mb-3">
+                  分割線を調整（ドラッグで移動、スナップで位置決定）
+                </h2>
+                <div className="relative bg-gray-100 rounded-lg p-4 inline-block w-full">
+                  <canvas
+                    ref={canvasRef}
+                    className="max-w-full mx-auto"
+                    style={{ maxHeight: '500px', width: 'auto' }}
+                  />
                   <svg
-                    className="animate-spin h-5 w-5 mr-2"
-                    viewBox="0 0 24 24"
+                    ref={overlayRef}
+                    className="absolute top-4 left-4 cursor-move"
+                    style={{
+                      width: canvasRef.current?.width ? `${canvasRef.current.width}px` : '100%',
+                      height: canvasRef.current?.height ? `${canvasRef.current.height}px` : 'auto',
+                      maxHeight: '500px',
+                    }}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
                   >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    />
+                    {/* 縦線 */}
+                    {lineAdjustments.verticalLines.map((posX, idx) => {
+                      const x = (canvasRef.current?.width || 0) * posX;
+                      return (
+                        <g key={`v-${idx}`}>
+                          <line
+                            x1={x}
+                            y1="0"
+                            x2={x}
+                            y2={canvasRef.current?.height || 0}
+                            stroke="rgba(255, 0, 0, 0)"
+                            strokeWidth="10"
+                            onMouseDown={() => setDraggedLine({ type: 'vertical', index: idx })}
+                            style={{ cursor: 'col-resize' }}
+                          />
+                        </g>
+                      );
+                    })}
+
+                    {/* 横線 */}
+                    {lineAdjustments.horizontalLines.map((posY, idx) => {
+                      const y = (canvasRef.current?.height || 0) * posY;
+                      return (
+                        <g key={`h-${idx}`}>
+                          <line
+                            x1="0"
+                            y1={y}
+                            x2={canvasRef.current?.width || 0}
+                            y2={y}
+                            stroke="rgba(255, 0, 0, 0)"
+                            strokeWidth="10"
+                            onMouseDown={() => setDraggedLine({ type: 'horizontal', index: idx })}
+                            style={{ cursor: 'row-resize' }}
+                          />
+                        </g>
+                      );
+                    })}
                   </svg>
-                  処理中...
-                </span>
-              ) : (
-                '切り取ってダウンロード'
+                </div>
+              </div>
+
+              {/* 背景透過オプション */}
+              <div className="mb-6 p-4 bg-gray-100 rounded-lg">
+                <label className="flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={removeWhiteBg}
+                    onChange={(e) => setRemoveWhiteBg(e.target.checked)}
+                    className="w-4 h-4 text-blue-500 rounded"
+                  />
+                  <span className="ml-2 text-gray-700">
+                    白背景を透過に変換（JPG画像用）
+                  </span>
+                </label>
+              </div>
+
+              {/* スタンププレビュー */}
+              {stampPreviews.length > 0 && (
+                <div className="mb-6">
+                  <h2 className="text-lg font-semibold text-gray-700 mb-3">
+                    切り取り後のスタンププレビュー（全 {stampPreviews.length}枚）
+                  </h2>
+                  <div className="bg-gray-100 rounded-lg p-4 max-h-96 overflow-y-auto">
+                    <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+                      {stampPreviews.map((preview, idx) => (
+                        <div key={idx} className="bg-white rounded border border-gray-300 p-1">
+                          <img
+                            src={preview}
+                            alt={`stamp ${idx + 1}`}
+                            className="w-full h-auto"
+                          />
+                          <p className="text-xs text-center text-gray-600 mt-1">
+                            {String(idx + 1).padStart(String(selectedCount).length, '0')}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               )}
-            </button>
+
+              {/* ダウンロードボタン */}
+              <button
+                onClick={handleSplitAndDownload}
+                disabled={isLoading}
+                className={`w-full py-3 px-6 rounded-lg font-semibold text-white transition ${
+                  isLoading
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-green-500 hover:bg-green-600 active:scale-95'
+                }`}
+              >
+                {isLoading ? (
+                  <span className="flex items-center justify-center">
+                    <svg
+                      className="animate-spin h-5 w-5 mr-2"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                        fill="none"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      />
+                    </svg>
+                    処理中...
+                  </span>
+                ) : (
+                  '切り取ってダウンロード'
+                )}
+              </button>
+            </>
           )}
 
           {/* 使い方 */}
@@ -370,7 +596,8 @@ export default function StampSplitter() {
             <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
               <li>スタンプ画像をアップロードします</li>
               <li>必要な枚数を選択します</li>
-              <li>プレビューで分割線を確認します</li>
+              <li>プレビューの分割線をドラッグして調整します（スナップで位置決定）</li>
+              <li>下のプレビューで切り取り後のスタンプを確認します</li>
               <li>必要に応じて背景透過オプションを有効にします</li>
               <li>「切り取ってダウンロード」をクリックしてZIPファイルを取得</li>
             </ol>
