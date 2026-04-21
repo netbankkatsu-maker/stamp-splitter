@@ -10,8 +10,8 @@ interface GridPattern {
 }
 
 interface LineAdjustment {
-  verticalLines: number[]; // 垂直線のX座標（割合 0-1）
-  horizontalLines: number[]; // 水平線のY座標（割合 0-1）
+  verticalLines: number[];
+  horizontalLines: number[];
 }
 
 const GRID_PATTERNS: Record<number, GridPattern> = {
@@ -42,14 +42,12 @@ export default function StampSplitter() {
   const overlayRef = useRef<SVGSVGElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 初期分割線を生成
   const initializeLines = useCallback((cols: number, rows: number) => {
     const verticalLines = Array.from({ length: cols - 1 }, (_, i) => (i + 1) / cols);
     const horizontalLines = Array.from({ length: rows - 1 }, (_, i) => (i + 1) / rows);
     setLineAdjustments({ verticalLines, horizontalLines });
   }, []);
 
-  // スナップ機能
   const snapToGrid = useCallback((position: number, divisionCount: number) => {
     const snapPositions = Array.from({ length: divisionCount - 1 }, (_, i) => (i + 1) / divisionCount);
     let closestSnap = position;
@@ -63,7 +61,6 @@ export default function StampSplitter() {
       }
     });
 
-    // 5%以内の距離なら吸着
     if (minDistance < 0.05) {
       return closestSnap;
     }
@@ -117,8 +114,10 @@ export default function StampSplitter() {
     e.stopPropagation();
   };
 
-  // SVG上のマウスムーブ
   const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+
     if (!draggedLine || !overlayRef.current || !canvasRef.current) return;
 
     const svg = overlayRef.current;
@@ -158,6 +157,23 @@ export default function StampSplitter() {
     setDraggedLine(null);
   };
 
+  // ドキュメント全体でのマウスムーブを処理してスクロール防止
+  useEffect(() => {
+    if (!draggedLine) return;
+
+    const handleDocMouseMove = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+
+    document.addEventListener('mousemove', handleDocMouseMove, { passive: false });
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleDocMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [draggedLine]);
+
   // キャンバスに分割線を描画
   useEffect(() => {
     if (!selectedImage || !canvasRef.current) return;
@@ -175,11 +191,9 @@ export default function StampSplitter() {
 
       ctx.drawImage(img, 0, 0);
 
-      // 調整された分割線を描画
       ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
       ctx.lineWidth = 2;
 
-      // 縦線
       lineAdjustments.verticalLines.forEach((posX) => {
         const x = posX * img.width;
         ctx.beginPath();
@@ -188,7 +202,6 @@ export default function StampSplitter() {
         ctx.stroke();
       });
 
-      // 横線
       lineAdjustments.horizontalLines.forEach((posY) => {
         const y = posY * img.height;
         ctx.beginPath();
@@ -208,11 +221,9 @@ export default function StampSplitter() {
     img.onload = () => {
       const previews: string[] = [];
 
-      // X座標（カラム）と Y座標（ロー）を構築
       const xPositions = [0, ...lineAdjustments.verticalLines.map(x => x * img.width), img.width];
       const yPositions = [0, ...lineAdjustments.horizontalLines.map(y => y * img.height), img.height];
 
-      // ソート
       xPositions.sort((a, b) => a - b);
       yPositions.sort((a, b) => a - b);
 
@@ -240,7 +251,6 @@ export default function StampSplitter() {
             cellHeight
           );
 
-          // 白背景を透過に変換
           if (removeWhiteBg) {
             const imageData = ctx.getImageData(0, 0, cellWidth, cellHeight);
             const data = imageData.data;
@@ -261,7 +271,6 @@ export default function StampSplitter() {
     img.src = selectedImage;
   }, [selectedImage, selectedCount, lineAdjustments, removeWhiteBg]);
 
-  // 分割数変更時
   useEffect(() => {
     const pattern = GRID_PATTERNS[selectedCount];
     initializeLines(pattern.cols, pattern.rows);
@@ -295,7 +304,6 @@ export default function StampSplitter() {
         const zip = new JSZip();
         const padding = String(selectedCount).length;
 
-        // X座標と Y座標を構築
         const xPositions = [0, ...lineAdjustments.verticalLines.map(x => x * img.width), img.width];
         const yPositions = [0, ...lineAdjustments.horizontalLines.map(y => y * img.height), img.height];
 
@@ -370,7 +378,6 @@ export default function StampSplitter() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
       <div className="max-w-6xl mx-auto">
-        {/* ヘッダー */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-800 mb-2">
             LINEスタンプ切り取りツール
@@ -380,9 +387,7 @@ export default function StampSplitter() {
           </p>
         </div>
 
-        {/* メインコンテンツ */}
         <div className="bg-white rounded-lg shadow-lg p-6 md:p-8">
-          {/* 画像アップロードエリア */}
           <div
             onDrop={handleDrop}
             onDragOver={handleDragOver}
@@ -419,7 +424,6 @@ export default function StampSplitter() {
 
           {selectedImage && (
             <>
-              {/* 分割数選択 */}
               <div className="mb-6">
                 <h2 className="text-lg font-semibold text-gray-700 mb-3">
                   分割数を選択
@@ -444,71 +448,66 @@ export default function StampSplitter() {
                 </p>
               </div>
 
-              {/* プレビュー */}
               <div className="mb-6">
                 <h2 className="text-lg font-semibold text-gray-700 mb-3">
                   分割線を調整（ドラッグで移動、スナップで位置決定）
                 </h2>
-                <div className="relative bg-gray-100 rounded-lg p-4 inline-block w-full">
+                <div className="relative bg-gray-100 rounded-lg p-4">
                   <canvas
                     ref={canvasRef}
-                    className="max-w-full mx-auto"
+                    className="max-w-full mx-auto block"
                     style={{ maxHeight: '500px', width: 'auto' }}
                   />
                   <svg
                     ref={overlayRef}
-                    className="absolute top-4 left-4 cursor-move"
+                    className="absolute inset-0 select-none"
                     style={{
-                      width: canvasRef.current?.width ? `${canvasRef.current.width}px` : '100%',
-                      height: canvasRef.current?.height ? `${canvasRef.current.height}px` : 'auto',
-                      maxHeight: '500px',
+                      top: '1rem',
+                      left: '1rem',
+                      pointerEvents: 'all',
+                      touchAction: 'none',
                     }}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
                   >
-                    {/* 縦線 */}
                     {lineAdjustments.verticalLines.map((posX, idx) => {
                       const x = (canvasRef.current?.width || 0) * posX;
                       return (
-                        <g key={`v-${idx}`}>
-                          <line
-                            x1={x}
-                            y1="0"
-                            x2={x}
-                            y2={canvasRef.current?.height || 0}
-                            stroke="rgba(255, 0, 0, 0)"
-                            strokeWidth="10"
-                            onMouseDown={() => setDraggedLine({ type: 'vertical', index: idx })}
-                            style={{ cursor: 'col-resize' }}
-                          />
-                        </g>
+                        <line
+                          key={`v-${idx}`}
+                          x1={x}
+                          y1="0"
+                          x2={x}
+                          y2={canvasRef.current?.height || 0}
+                          stroke="rgba(255, 0, 0, 0)"
+                          strokeWidth="10"
+                          onMouseDown={() => setDraggedLine({ type: 'vertical', index: idx })}
+                          style={{ cursor: 'col-resize' }}
+                        />
                       );
                     })}
 
-                    {/* 横線 */}
                     {lineAdjustments.horizontalLines.map((posY, idx) => {
                       const y = (canvasRef.current?.height || 0) * posY;
                       return (
-                        <g key={`h-${idx}`}>
-                          <line
-                            x1="0"
-                            y1={y}
-                            x2={canvasRef.current?.width || 0}
-                            y2={y}
-                            stroke="rgba(255, 0, 0, 0)"
-                            strokeWidth="10"
-                            onMouseDown={() => setDraggedLine({ type: 'horizontal', index: idx })}
-                            style={{ cursor: 'row-resize' }}
-                          />
-                        </g>
+                        <line
+                          key={`h-${idx}`}
+                          x1="0"
+                          y1={y}
+                          x2={canvasRef.current?.width || 0}
+                          y2={y}
+                          stroke="rgba(255, 0, 0, 0)"
+                          strokeWidth="10"
+                          onMouseDown={() => setDraggedLine({ type: 'horizontal', index: idx })}
+                          style={{ cursor: 'row-resize' }}
+                        />
                       );
                     })}
                   </svg>
                 </div>
               </div>
 
-              {/* 背景透過オプション */}
               <div className="mb-6 p-4 bg-gray-100 rounded-lg">
                 <label className="flex items-center cursor-pointer">
                   <input
@@ -523,7 +522,6 @@ export default function StampSplitter() {
                 </label>
               </div>
 
-              {/* スタンププレビュー */}
               {stampPreviews.length > 0 && (
                 <div className="mb-6">
                   <h2 className="text-lg font-semibold text-gray-700 mb-3">
@@ -548,7 +546,6 @@ export default function StampSplitter() {
                 </div>
               )}
 
-              {/* ダウンロードボタン */}
               <button
                 onClick={handleSplitAndDownload}
                 disabled={isLoading}
@@ -588,7 +585,6 @@ export default function StampSplitter() {
             </>
           )}
 
-          {/* 使い方 */}
           <div className="mt-8 pt-6 border-t border-gray-200">
             <h3 className="text-lg font-semibold text-gray-700 mb-3">
               使い方
