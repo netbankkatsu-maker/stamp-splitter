@@ -15,7 +15,7 @@ interface LineAdjustment {
 }
 
 const GRID_PATTERNS: Record<number, GridPattern> = {
-  8: { cols: 2, rows: 4, count: 8 },
+  8: { cols: 4, rows: 2, count: 8 },
   16: { cols: 4, rows: 4, count: 16 },
   24: { cols: 4, rows: 6, count: 24 },
   32: { cols: 4, rows: 8, count: 32 },
@@ -37,6 +37,7 @@ export default function StampSplitter() {
     index: number;
   } | null>(null);
   const [stampPreviews, setStampPreviews] = useState<string[]>([]);
+  const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<SVGSVGElement>(null);
@@ -79,6 +80,7 @@ export default function StampSplitter() {
       img.onload = () => {
         const pattern = GRID_PATTERNS[selectedCount];
         initializeLines(pattern.cols, pattern.rows);
+        setShowAdjustmentModal(true);
       };
       img.src = event.target?.result as string;
     };
@@ -103,6 +105,7 @@ export default function StampSplitter() {
       img.onload = () => {
         const pattern = GRID_PATTERNS[selectedCount];
         initializeLines(pattern.cols, pattern.rows);
+        setShowAdjustmentModal(true);
       };
       img.src = event.target?.result as string;
     };
@@ -118,7 +121,7 @@ export default function StampSplitter() {
     e.preventDefault();
     e.stopPropagation();
 
-    if (!draggedLine || !overlayRef.current || !canvasRef.current) return;
+    if (!draggedLine || !canvasRef.current) return;
 
     const canvas = canvasRef.current;
     const canvasRect = canvas.getBoundingClientRect();
@@ -127,7 +130,6 @@ export default function StampSplitter() {
     let newPosition: number;
 
     if (draggedLine.type === 'vertical') {
-      // キャンバスを基準に座標計算
       const x = e.clientX - canvasRect.left;
       newPosition = x / canvasRect.width;
       newPosition = Math.max(0, Math.min(1, newPosition));
@@ -156,7 +158,6 @@ export default function StampSplitter() {
     setDraggedLine(null);
   };
 
-  // ドキュメント全体でのマウスムーブを処理してスクロール防止
   useEffect(() => {
     if (!draggedLine) return;
 
@@ -173,7 +174,6 @@ export default function StampSplitter() {
     };
   }, [draggedLine]);
 
-  // キャンバスに分割線を描画
   useEffect(() => {
     if (!selectedImage || !canvasRef.current) return;
 
@@ -212,7 +212,6 @@ export default function StampSplitter() {
     img.src = selectedImage;
   }, [selectedImage, lineAdjustments]);
 
-  // スタンププレビューを生成
   useEffect(() => {
     if (!selectedImage) return;
 
@@ -421,7 +420,7 @@ export default function StampSplitter() {
             </p>
           </div>
 
-          {selectedImage && (
+          {selectedImage && !showAdjustmentModal && (
             <>
               <div className="mb-6">
                 <h2 className="text-lg font-semibold text-gray-700 mb-3">
@@ -447,136 +446,185 @@ export default function StampSplitter() {
                 </p>
               </div>
 
-              <div className="mb-6">
-                <h2 className="text-lg font-semibold text-gray-700 mb-3">
-                  分割線を調整（ドラッグで移動、スナップで位置決定）
-                </h2>
-                <div className="relative bg-gray-100 rounded-lg overflow-hidden inline-block w-full">
-                  <div style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
-                    <canvas
-                      ref={canvasRef}
-                      className="max-w-full mx-auto block"
-                      style={{
-                        maxHeight: '500px',
-                        width: 'auto',
-                        height: 'auto',
-                        display: 'block',
-                      }}
-                    />
-                    <svg
-                      ref={overlayRef}
-                      className="select-none"
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: canvasRef.current?.width ? `${canvasRef.current.width}px` : '100%',
-                        height: canvasRef.current?.height ? `${canvasRef.current.height}px` : 'auto',
-                        pointerEvents: 'all',
-                        touchAction: 'none',
-                      }}
-                      onMouseMove={handleMouseMove}
-                      onMouseUp={handleMouseUp}
-                      onMouseLeave={handleMouseUp}
-                    >
-                      {/* 縦線 */}
-                      {lineAdjustments.verticalLines.map((posX, idx) => {
-                        const x = (canvasRef.current?.width || 0) * posX;
-                        const canvasHeight = canvasRef.current?.height || 0;
-                        return (
-                          <g key={`v-${idx}`}>
-                            {/* 細い見えない線（ドラッグエリア） */}
-                            <line
-                              x1={x}
-                              y1="0"
-                              x2={x}
-                              y2={canvasHeight}
-                              stroke="rgba(255, 0, 0, 0)"
-                              strokeWidth="10"
-                              style={{ cursor: 'col-resize', pointerEvents: 'stroke' }}
-                              onMouseDown={() => setDraggedLine({ type: 'vertical', index: idx })}
-                            />
-                            {/* 目に見える赤い線 */}
-                            <line
-                              x1={x}
-                              y1="0"
-                              x2={x}
-                              y2={canvasHeight}
-                              stroke="rgba(255, 0, 0, 0.6)"
-                              strokeWidth="2"
-                              pointerEvents="none"
-                            />
-                            {/* ドラッグハンドル（つまみ） */}
-                            <circle
-                              cx={x}
-                              cy={canvasHeight / 2}
-                              r="12"
-                              fill="rgba(255, 100, 100, 0.8)"
-                              stroke="rgba(255, 0, 0, 1)"
-                              strokeWidth="2"
-                              style={{
-                                cursor: 'grab',
-                                filter: draggedLine?.type === 'vertical' && draggedLine.index === idx
-                                  ? 'drop-shadow(0 0 8px rgba(255, 0, 0, 0.8))'
-                                  : 'drop-shadow(0 0 2px rgba(0, 0, 0, 0.3))',
-                              }}
-                              onMouseDown={() => setDraggedLine({ type: 'vertical', index: idx })}
-                            />
-                          </g>
-                        );
-                      })}
+              <button
+                onClick={() => setShowAdjustmentModal(true)}
+                className="w-full py-3 px-6 rounded-lg font-semibold text-white bg-blue-500 hover:bg-blue-600 transition"
+              >
+                分割線を調整
+              </button>
+            </>
+          )}
 
-                      {/* 横線 */}
-                      {lineAdjustments.horizontalLines.map((posY, idx) => {
-                        const y = (canvasRef.current?.height || 0) * posY;
-                        const canvasWidth = canvasRef.current?.width || 0;
-                        return (
-                          <g key={`h-${idx}`}>
-                            {/* 細い見えない線（ドラッグエリア） */}
-                            <line
-                              x1="0"
-                              y1={y}
-                              x2={canvasWidth}
-                              y2={y}
-                              stroke="rgba(255, 0, 0, 0)"
-                              strokeWidth="10"
-                              style={{ cursor: 'row-resize', pointerEvents: 'stroke' }}
-                              onMouseDown={() => setDraggedLine({ type: 'horizontal', index: idx })}
-                            />
-                            {/* 目に見える赤い線 */}
-                            <line
-                              x1="0"
-                              y1={y}
-                              x2={canvasWidth}
-                              y2={y}
-                              stroke="rgba(255, 0, 0, 0.6)"
-                              strokeWidth="2"
-                              pointerEvents="none"
-                            />
-                            {/* ドラッグハンドル（つまみ） */}
-                            <circle
-                              cx={canvasWidth / 2}
-                              cy={y}
-                              r="12"
-                              fill="rgba(255, 100, 100, 0.8)"
-                              stroke="rgba(255, 0, 0, 1)"
-                              strokeWidth="2"
-                              style={{
-                                cursor: 'grab',
-                                filter: draggedLine?.type === 'horizontal' && draggedLine.index === idx
-                                  ? 'drop-shadow(0 0 8px rgba(255, 0, 0, 0.8))'
-                                  : 'drop-shadow(0 0 2px rgba(0, 0, 0, 0.3))',
-                              }}
-                              onMouseDown={() => setDraggedLine({ type: 'horizontal', index: idx })}
-                            />
-                          </g>
-                        );
-                      })}
-                    </svg>
-                  </div>
+          {!selectedImage && (
+            <div className="mt-8 pt-6 border-t border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-700 mb-3">
+                使い方
+              </h3>
+              <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
+                <li>スタンプ画像をアップロードします</li>
+                <li>必要な枚数を選択します</li>
+                <li>「分割線を調整」ボタンをクリックします</li>
+                <li>ポップアップで分割線をドラッグして調整します</li>
+                <li>「確定」ボタンで確認します</li>
+                <li>「切り取ってダウンロード」でZIPファイルを取得</li>
+              </ol>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 分割線調整モーダル */}
+      {showAdjustmentModal && selectedImage && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
+              <h2 className="text-2xl font-bold text-gray-800">
+                分割線を調整 ({GRID_PATTERNS[selectedCount].cols}列 × {GRID_PATTERNS[selectedCount].rows}行)
+              </h2>
+              <button
+                onClick={() => setShowAdjustmentModal(false)}
+                className="text-2xl text-gray-500 hover:text-gray-700"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-6">
+              {/* キャンバスとSVG */}
+              <div className="relative bg-gray-100 rounded-lg mb-6 inline-block w-full">
+                <div style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
+                  <canvas
+                    ref={canvasRef}
+                    className="w-full h-auto block rounded"
+                    style={{ maxHeight: '600px', display: 'block' }}
+                  />
+                  <svg
+                    ref={overlayRef}
+                    className="select-none"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: canvasRef.current?.width ? `${canvasRef.current.width}px` : '100%',
+                      height: canvasRef.current?.height ? `${canvasRef.current.height}px` : 'auto',
+                      maxHeight: '600px',
+                      pointerEvents: 'all',
+                      touchAction: 'none',
+                    }}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                  >
+                    {/* 縦線 */}
+                    {lineAdjustments.verticalLines.map((posX, idx) => {
+                      const x = (canvasRef.current?.width || 0) * posX;
+                      const canvasHeight = canvasRef.current?.height || 0;
+                      return (
+                        <g key={`v-${idx}`}>
+                          <line
+                            x1={x}
+                            y1="0"
+                            x2={x}
+                            y2={canvasHeight}
+                            stroke="rgba(255, 0, 0, 0)"
+                            strokeWidth="15"
+                            style={{ cursor: 'col-resize', pointerEvents: 'stroke' }}
+                            onMouseDown={() => setDraggedLine({ type: 'vertical', index: idx })}
+                          />
+                          <line
+                            x1={x}
+                            y1="0"
+                            x2={x}
+                            y2={canvasHeight}
+                            stroke="rgba(255, 0, 0, 0.6)"
+                            strokeWidth="2"
+                            pointerEvents="none"
+                          />
+                          <circle
+                            cx={x}
+                            cy={canvasHeight / 2}
+                            r="16"
+                            fill="rgba(255, 100, 100, 0.9)"
+                            stroke="rgba(255, 0, 0, 1)"
+                            strokeWidth="3"
+                            style={{
+                              cursor: 'grab',
+                              filter: draggedLine?.type === 'vertical' && draggedLine.index === idx
+                                ? 'drop-shadow(0 0 12px rgba(255, 0, 0, 0.9))'
+                                : 'drop-shadow(0 0 4px rgba(0, 0, 0, 0.4))',
+                            }}
+                            onMouseDown={() => setDraggedLine({ type: 'vertical', index: idx })}
+                          />
+                        </g>
+                      );
+                    })}
+
+                    {/* 横線 */}
+                    {lineAdjustments.horizontalLines.map((posY, idx) => {
+                      const y = (canvasRef.current?.height || 0) * posY;
+                      const canvasWidth = canvasRef.current?.width || 0;
+                      return (
+                        <g key={`h-${idx}`}>
+                          <line
+                            x1="0"
+                            y1={y}
+                            x2={canvasWidth}
+                            y2={y}
+                            stroke="rgba(255, 0, 0, 0)"
+                            strokeWidth="15"
+                            style={{ cursor: 'row-resize', pointerEvents: 'stroke' }}
+                            onMouseDown={() => setDraggedLine({ type: 'horizontal', index: idx })}
+                          />
+                          <line
+                            x1="0"
+                            y1={y}
+                            x2={canvasWidth}
+                            y2={y}
+                            stroke="rgba(255, 0, 0, 0.6)"
+                            strokeWidth="2"
+                            pointerEvents="none"
+                          />
+                          <circle
+                            cx={canvasWidth / 2}
+                            cy={y}
+                            r="16"
+                            fill="rgba(255, 100, 100, 0.9)"
+                            stroke="rgba(255, 0, 0, 1)"
+                            strokeWidth="3"
+                            style={{
+                              cursor: 'grab',
+                              filter: draggedLine?.type === 'horizontal' && draggedLine.index === idx
+                                ? 'drop-shadow(0 0 12px rgba(255, 0, 0, 0.9))'
+                                : 'drop-shadow(0 0 4px rgba(0, 0, 0, 0.4))',
+                            }}
+                            onMouseDown={() => setDraggedLine({ type: 'horizontal', index: idx })}
+                          />
+                        </g>
+                      );
+                    })}
+                  </svg>
                 </div>
               </div>
 
+              {/* スタンププレビュー */}
+              {stampPreviews.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-gray-700 mb-3">
+                    切り取り後のプレビュー（全 {stampPreviews.length}枚）
+                  </h3>
+                  <div className="bg-gray-50 rounded-lg p-4 max-h-48 overflow-y-auto">
+                    <div className="grid grid-cols-6 md:grid-cols-10 gap-2">
+                      {stampPreviews.map((preview, idx) => (
+                        <div key={idx} className="bg-white rounded border border-gray-200 p-1">
+                          <img src={preview} alt={`stamp ${idx + 1}`} className="w-full h-auto" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 背景透過オプション */}
               <div className="mb-6 p-4 bg-gray-100 rounded-lg">
                 <label className="flex items-center cursor-pointer">
                   <input
@@ -591,84 +639,40 @@ export default function StampSplitter() {
                 </label>
               </div>
 
-              {stampPreviews.length > 0 && (
-                <div className="mb-6">
-                  <h2 className="text-lg font-semibold text-gray-700 mb-3">
-                    切り取り後のスタンププレビュー（全 {stampPreviews.length}枚）
-                  </h2>
-                  <div className="bg-gray-100 rounded-lg p-4 max-h-96 overflow-y-auto">
-                    <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
-                      {stampPreviews.map((preview, idx) => (
-                        <div key={idx} className="bg-white rounded border border-gray-300 p-1">
-                          <img
-                            src={preview}
-                            alt={`stamp ${idx + 1}`}
-                            className="w-full h-auto"
-                          />
-                          <p className="text-xs text-center text-gray-600 mt-1">
-                            {String(idx + 1).padStart(String(selectedCount).length, '0')}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <button
-                onClick={handleSplitAndDownload}
-                disabled={isLoading}
-                className={`w-full py-3 px-6 rounded-lg font-semibold text-white transition ${
-                  isLoading
-                    ? 'bg-gray-400 cursor-not-allowed'
-                    : 'bg-green-500 hover:bg-green-600 active:scale-95'
-                }`}
-              >
-                {isLoading ? (
-                  <span className="flex items-center justify-center">
-                    <svg
-                      className="animate-spin h-5 w-5 mr-2"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                        fill="none"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      />
-                    </svg>
-                    処理中...
-                  </span>
-                ) : (
-                  '切り取ってダウンロード'
-                )}
-              </button>
-            </>
-          )}
-
-          <div className="mt-8 pt-6 border-t border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-700 mb-3">
-              使い方
-            </h3>
-            <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
-              <li>スタンプ画像をアップロードします</li>
-              <li>必要な枚数を選択します</li>
-              <li>プレビューの分割線をドラッグして調整します（スナップで位置決定）</li>
-              <li>下のプレビューで切り取り後のスタンプを確認します</li>
-              <li>必要に応じて背景透過オプションを有効にします</li>
-              <li>「切り取ってダウンロード」をクリックしてZIPファイルを取得</li>
-            </ol>
+              {/* ボタン */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowAdjustmentModal(false)}
+                  className="flex-1 py-3 px-6 rounded-lg font-semibold text-gray-700 bg-gray-300 hover:bg-gray-400 transition"
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={handleSplitAndDownload}
+                  disabled={isLoading}
+                  className={`flex-1 py-3 px-6 rounded-lg font-semibold text-white transition ${
+                    isLoading
+                      ? 'bg-gray-400 cursor-not-allowed'
+                      : 'bg-green-500 hover:bg-green-600'
+                  }`}
+                >
+                  {isLoading ? (
+                    <span className="flex items-center justify-center">
+                      <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      処理中...
+                    </span>
+                  ) : (
+                    '切り取ってダウンロード'
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
